@@ -84,4 +84,3 @@ def canli_veri_getir():
     """, language="python")
     
     st.info("İpucu: API anahtarlarınızı doğrudan koda yazmak yerine Streamlit'in 'Secrets' (Gizli Ayarlar) bölümüne eklemek en güvenli yoldur.")
-```eof
