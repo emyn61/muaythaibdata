@@ -1,9 +1,5 @@
 streamlit
 pandas
-requests
-statsbombpy
-mplsoccer
+numpy
 matplotlib
-soccerdata
-wyscout
-sportbase
+mplsoccer
