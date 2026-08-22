@@ -1,247 +1,253 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-from statsbombpy import sb
-from mplsoccer import Pitch, Radar
+import numpy as np
 
-st.set_page_config(page_title="Gelişmiş Scout Panosu", page_icon="🔍", layout="wide")
-st.title("🔍 Gelişmiş Oyuncu İstatistikleri ve Scout Panosu")
+# Sayfa ayarlarını yapıyoruz (Geniş ekran ve koyu tema hissi)
+st.set_page_config(page_title="Scout Dashboard - Per90 Style", page_icon="⚽", layout="wide")
 
-# --- VERİ ÇEKME FONKSİYONLARI ---
-@st.cache_data(show_spinner=False)
-def ligleri_getir():
-    return sb.competitions()
-
-@st.cache_data(show_spinner=False)
-def maclari_getir(comp_id, season_id):
-    return sb.matches(competition_id=comp_id, season_id=season_id)
-
-@st.cache_data(show_spinner=False)
-def olaylari_getir(match_id):
-    return sb.events(match_id=match_id)
-
-# --- YAN MENÜ: FİLTRELEME ---
-st.sidebar.header("Veri Seçimi")
-
-try:
-    df_ligler = ligleri_getir()
+# --- ÖZEL CSS İLE GÖRSELDEKİ ARAYÜZÜ YARATMA ---
+# Streamlit'in arka planını koyu lacivert/gri yapıp kutuları şekillendiriyoruz
+st.markdown("""
+<style>
+    /* Ana arka plan (Görseldeki gibi koyu lacivert tonu) */
+    .stApp {
+        background-color: #0b101c;
+    }
     
-    # 1. EN ERKEN 24/25 SEZONU FİLTRESİ
-    # Eğer ücretsiz veritabanında henüz 24/25 yoksa sistem çökmesin diye kontrol ekliyoruz.
-    guncel_ligler = df_ligler[df_ligler['season_name'].str.contains('2024|2025|24/25', na=False)]
-    if not guncel_ligler.empty:
-        df_ligler = guncel_ligler
+    /* Üst taraftaki oyuncu başlık alanı */
+    .header-box {
+        background-color: #121927;
+        padding: 20px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        border: 1px solid #1f2937;
+        color: white;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    /* Kategori Kartları (OUTPUT, PLAYMAKING vb.) */
+    .category-card {
+        background-color: #121927;
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+        border: 1px solid #1f2937;
+        color: #8b949e;
+    }
+    
+    .category-title {
+        font-size: 12px;
+        letter-spacing: 2px;
+        margin-bottom: 20px;
+        color: #8b949e;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    /* Tekil İstatistik Kutusu */
+    .stat-container {
+        margin-bottom: 15px;
+    }
+    
+    .stat-header {
+        display: flex;
+        justify-content: space-between;
+        font-size: 13px;
+        color: white;
+        margin-bottom: 5px;
+    }
+
+    /* İlerleme Çubuğu (Percentile Bar) */
+    .bar-bg {
+        width: 100%;
+        height: 6px;
+        background-color: #1f2937;
+        border-radius: 3px;
+        overflow: hidden;
+        margin-bottom: 5px;
+    }
+    
+    .bar-fill {
+        height: 100%;
+        border-radius: 3px;
+    }
+
+    /* Etiketler (Elite, Above Avg, Poor vb.) */
+    .badge {
+        font-size: 10px;
+        padding: 2px 6px;
+        border-radius: 12px;
+        border: 1px solid;
+        letter-spacing: 0.5px;
+    }
+    
+    /* Renk Sınıfları */
+    .elite-color { background-color: #00ff00; }
+    .elite-badge { color: #00ff00; border-color: #00ff00; }
+    
+    .above-color { background-color: #1e90ff; }
+    .above-badge { color: #1e90ff; border-color: #1e90ff; }
+    
+    .avg-color { background-color: #808080; }
+    .avg-badge { color: #808080; border-color: #808080; }
+    
+    .below-color { background-color: #ffa500; }
+    .below-badge { color: #ffa500; border-color: #ffa500; }
+    
+    .poor-color { background-color: #ff0000; }
+    .poor-badge { color: #ff0000; border-color: #ff0000; }
+</style>
+""", unsafe_allow_html=True)
+
+# --- YARDIMCI HTML FONKSİYONU ---
+def draw_stat_bar(title, value_per_90, percentile):
+    """Görseldeki istatistik barını HTML/CSS ile çizer"""
+    
+    # Yüzdeliğe göre renk ve rozet (Badge) belirleme
+    if percentile >= 85:
+        bar_class = "elite-color"
+        badge_class = "elite-badge"
+        badge_text = "ELITE"
+    elif percentile >= 65:
+        bar_class = "above-color"
+        badge_class = "above-badge"
+        badge_text = "ABOVE AVG"
+    elif percentile >= 35:
+        bar_class = "avg-color"
+        badge_class = "avg-badge"
+        badge_text = "AVERAGE"
+    elif percentile >= 15:
+        bar_class = "below-color"
+        badge_class = "below-badge"
+        badge_text = "BELOW AVG"
     else:
-        st.sidebar.warning("StatsBomb ücretsiz API'sinde henüz 24/25 verisi kısıtlı. Mevcut en güncel veriler gösteriliyor.")
+        bar_class = "poor-color"
+        badge_class = "poor-badge"
+        badge_text = "POOR"
+
+    # HTML Çıktısı
+    html = f"""
+    <div class="stat-container">
+        <div style="text-align: center; color: white; font-size: 13px; margin-bottom: 5px;">{title}</div>
+        <div class="bar-bg">
+            <div class="bar-fill {bar_class}" style="width: {percentile}%;"></div>
+        </div>
+        <div class="stat-header">
+            <span>{value_per_90:.2f}/90 <span style="color:#8b949e; font-size:11px;">({percentile}%)</span></span>
+            <span class="badge {badge_class}">{badge_text}</span>
+        </div>
+    </div>
+    """
+    return html
+
+# --- SAHTE VERİ (Gerçek veri yerine tasarımı göstermek için) ---
+oyuncu_adi = "Muhammed Emin Küçükkaya" # Aapo Boström tarzı başlık
+oyuncu_takim = "Trabzonspor"
+oyuncu_pozisyon = "DM/CM"
+oyuncu_yas = "20 y/o"
+oyuncu_dakika = "1450 min. played"
+
+# --- ÜST BAŞLIK ALANI (HEADER) ---
+st.markdown(f"""
+<div class="header-box">
+    <div>
+        <h1 style="margin:0; font-size: 32px;">{oyuncu_adi}</h1>
+        <p style="margin:0; color: #8b949e; font-size: 14px;">Percentile rank vs. league's positional peers</p>
+    </div>
+    <div style="text-align: right; font-size: 12px;">
+        <div style="margin-bottom: 5px;"><span style="border: 1px solid #30363d; padding: 4px 10px; border-radius: 15px; margin-right: 5px;">{oyuncu_takim}</span> <span style="border: 1px solid #30363d; padding: 4px 10px; border-radius: 15px;">{oyuncu_pozisyon}</span></div>
+        <div><span style="border: 1px solid #30363d; padding: 4px 10px; border-radius: 15px; margin-right: 5px;">{oyuncu_yas}</span> <span style="border: 1px solid #30363d; padding: 4px 10px; border-radius: 15px;">{oyuncu_dakika}</span></div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# --- 2 KOLONLU IZGARA (GRID) YAPISI ---
+col1, col2 = st.columns(2, gap="large")
+
+with col1:
+    # --- OUTPUT KUTUSU ---
+    st.markdown('<div class="category-card">', unsafe_allow_html=True)
+    st.markdown('<div class="category-title">OUTPUT</div>', unsafe_allow_html=True)
     
-    df_ligler['Lig_Sezon'] = df_ligler['competition_name'] + " (" + df_ligler['season_name'] + ")"
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(draw_stat_bar("Goals", 0.00, 18), unsafe_allow_html=True)
+        st.markdown(draw_stat_bar("Shots On Target", 0.30, 41), unsafe_allow_html=True)
+        st.markdown(draw_stat_bar("Shots Inside Box", 0.30, 24), unsafe_allow_html=True)
+    with c2:
+        st.markdown(draw_stat_bar("npxG", 0.06, 28), unsafe_allow_html=True)
+        st.markdown(draw_stat_bar("Created Own Shot", 0.40, 57), unsafe_allow_html=True)
+        st.markdown(draw_stat_bar("Touches In Opp. Box", 0.79, 19), unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # --- PASSING KUTUSU ---
+    st.markdown('<div class="category-card">', unsafe_allow_html=True)
+    st.markdown('<div class="category-title">PASSING</div>', unsafe_allow_html=True)
     
-    secilen_lig_sezon = st.sidebar.selectbox("Lig ve Sezon Seçin", df_ligler['Lig_Sezon'].unique())
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(draw_stat_bar("Accurate Passes", 48.92, 80), unsafe_allow_html=True)
+        st.markdown(draw_stat_bar("Accurate Crosses", 0.30, 48), unsafe_allow_html=True)
+        st.markdown(draw_stat_bar("Long Ball Accuracy %", 52.50, 59), unsafe_allow_html=True)
+    with c2:
+        st.markdown(draw_stat_bar("Accurate Long Balls", 2.08, 61), unsafe_allow_html=True)
+        st.markdown(draw_stat_bar("Pass Accuracy %", 87.41, 76), unsafe_allow_html=True)
+        st.markdown(draw_stat_bar("Cross Accuracy %", 15.79, 28), unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
     
-    lig_bilgisi = df_ligler[df_ligler['Lig_Sezon'] == secilen_lig_sezon].iloc[0]
-    comp_id = lig_bilgisi['competition_id']
-    season_id = lig_bilgisi['season_id']
+    # --- DEFENDING / DUELS KUTUSU ---
+    st.markdown('<div class="category-card">', unsafe_allow_html=True)
+    st.markdown('<div class="category-title">DEFENDING/DUELS</div>', unsafe_allow_html=True)
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(draw_stat_bar("Tackles Won %", 63.89, 69), unsafe_allow_html=True)
+        st.markdown(draw_stat_bar("Duels Won %", 57.66, 91), unsafe_allow_html=True)
+    with c2:
+        st.markdown(draw_stat_bar("Aerials Won %", 53.85, 80), unsafe_allow_html=True)
+        st.markdown(draw_stat_bar("Tackles Won", 2.28, 98), unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+with col2:
+    # --- PLAYMAKING KUTUSU ---
+    st.markdown('<div class="category-card">', unsafe_allow_html=True)
+    st.markdown('<div class="category-title">PLAYMAKING</div>', unsafe_allow_html=True)
     
-    df_maclar = maclari_getir(comp_id, season_id)
-    df_maclar['Mac_Adi'] = df_maclar['home_team'] + " vs " + df_maclar['away_team']
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(draw_stat_bar("Assists", 0.00, 21), unsafe_allow_html=True)
+        st.markdown(draw_stat_bar("Key Passes", 1.19, 61), unsafe_allow_html=True)
+        st.markdown(draw_stat_bar("Progressive Passes", 5.36, 78), unsafe_allow_html=True)
+    with c2:
+        st.markdown(draw_stat_bar("xA", 0.08, 54), unsafe_allow_html=True)
+        st.markdown(draw_stat_bar("xT via Live Passes", 0.15, 74), unsafe_allow_html=True)
+        st.markdown(draw_stat_bar("Passes Into Final 3rd", 4.86, 78), unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # --- POSSESSION KUTUSU ---
+    st.markdown('<div class="category-card">', unsafe_allow_html=True)
+    st.markdown('<div class="category-title">POSSESSION</div>', unsafe_allow_html=True)
     
-    secilen_mac_adi = st.sidebar.selectbox("Maç Seçin", df_maclar['Mac_Adi'].unique())
-    mac_id = df_maclar[df_maclar['Mac_Adi'] == secilen_mac_adi].iloc[0]['match_id']
-    
-    with st.spinner("Maç verileri indiriliyor..."):
-        df_olaylar = olaylari_getir(mac_id)
-        
-    # Python'un standart sıralaması ile ArrowStringArray hatasını çözüyoruz
-    oyuncular = sorted(list(df_olaylar['player'].dropna().unique()))
-    
-    # --- ANA EKRAN SEKMELERİ (3 SEKME) ---
-    tab1, tab2, tab3 = st.tabs(["🗺️ Saha İstatistikleri", "🕸️ Radar (Kıyaslama)", "📋 Kapsamlı Scout Raporu"])
-    
-    # --- TAB 1: SAHA İSTATİSTİKLERİ ---
-    with tab1:
-        st.subheader("Bireysel Saha Aksiyonları")
-        secilen_oyuncu = st.selectbox("Oyuncu Seçin", oyuncular, key="saha_oyuncu")
-        istatistik_turu = st.selectbox(
-            "Görmek İstediğiniz İstatistik", 
-            ["Tüm Paslar", "Uzun Toplar", "Top Sürme (Dribbling)", "Şutlar ve npXG"]
-        )
-        
-        oyuncu_verisi = df_olaylar[df_olaylar['player'] == secilen_oyuncu]
-        
-        pitch = Pitch(pitch_type='statsbomb', pitch_color='#22312b', line_color='#c7d5cc')
-        fig, ax = pitch.draw(figsize=(10, 7))
-        fig.set_facecolor('#22312b')
-        
-        if istatistik_turu == "Tüm Paslar":
-            paslar = oyuncu_verisi[oyuncu_verisi['type'] == 'Pass']
-            for index, row in paslar.iterrows():
-                if type(row.get('location')) == list and type(row.get('pass_end_location')) == list:
-                    x1, y1 = row['location']
-                    x2, y2 = row['pass_end_location']
-                    renk = '#00BFFF' if pd.isna(row.get('pass_outcome')) else 'red'
-                    pitch.arrows(x1, y1, x2, y2, color=renk, ax=ax, width=2, headwidth=6, alpha=0.8)
-                    
-        elif istatistik_turu == "Uzun Toplar":
-            paslar = oyuncu_verisi[oyuncu_verisi['type'] == 'Pass']
-            uzun_toplar = paslar[paslar['pass_length'] >= 35]
-            for index, row in uzun_toplar.iterrows():
-                if type(row.get('location')) == list and type(row.get('pass_end_location')) == list:
-                    x1, y1 = row['location']
-                    x2, y2 = row['pass_end_location']
-                    renk = '#00FF00' if pd.isna(row.get('pass_outcome')) else 'red'
-                    pitch.arrows(x1, y1, x2, y2, color=renk, ax=ax, width=2, headwidth=6, alpha=0.9)
-                    
-        elif istatistik_turu == "Top Sürme (Dribbling)":
-            dribbles = oyuncu_verisi[oyuncu_verisi['type'] == 'Dribble']
-            for index, row in dribbles.iterrows():
-                if type(row.get('location')) == list:
-                    x, y = row['location']
-                    renk = '#FFD700' if row.get('dribble_outcome') == 'Complete' else 'red'
-                    pitch.scatter(x, y, color=renk, ax=ax, s=150, edgecolors='black', zorder=2)
-                    
-        elif istatistik_turu == "Şutlar ve npXG":
-            sutlar = oyuncu_verisi[oyuncu_verisi['type'] == 'Shot']
-            for index, row in sutlar.iterrows():
-                if type(row.get('location')) == list:
-                    x, y = row['location']
-                    xg = row.get('shot_statsbomb_xg')
-                    buyukluk = (xg * 1000) if not pd.isna(xg) else 100
-                    renk = '#00FF00' if row.get('shot_outcome') == 'Goal' else 'white'
-                    pitch.scatter(x, y, color=renk, ax=ax, s=buyukluk, edgecolors='black', alpha=0.7)
-                    if not pd.isna(xg):
-                        ax.text(x+1, y-1, f"{xg:.2f}", color='white', fontsize=10)
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(draw_stat_bar("Successful Dribbles", 0.69, 67), unsafe_allow_html=True)
+        st.markdown(draw_stat_bar("Dribble Success %", 50.00, 62), unsafe_allow_html=True)
+        st.markdown(draw_stat_bar("xT via Progressive Carries", 0.03, 39), unsafe_allow_html=True)
+    with c2:
+        st.markdown(draw_stat_bar("Dribble Attempts", 1.39, 63), unsafe_allow_html=True)
+        st.markdown(draw_stat_bar("Progressive Carries", 1.59, 48), unsafe_allow_html=True)
+        st.markdown(draw_stat_bar("Carries Into Final 1/3", 0.89, 67), unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-        st.pyplot(fig)
-        
-    # --- TAB 2: RADAR GRAFİĞİ (HATALAR DÜZELTİLDİ) ---
-    with tab2:
-        st.subheader("Oyuncu Kıyaslama (Radar)")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            oyuncu_1 = st.selectbox("1. Oyuncu (Bordo)", oyuncular, key="p1")
-        with col2:
-            oyuncu_2 = st.selectbox("2. Oyuncu (Mavi)", oyuncular, key="p2")
-            
-        if st.button("Radarı Çiz"):
-            p1_veri = df_olaylar[df_olaylar['player'] == oyuncu_1]
-            p2_veri = df_olaylar[df_olaylar['player'] == oyuncu_2]
-            
-            parametreler = ['Pas Denemesi', 'Başarılı Pas', 'Şut', 'Dribbling', 'Top Kazanma']
-            
-            p1_degerler = [
-                len(p1_veri[p1_veri['type'] == 'Pass']),
-                len(p1_veri[(p1_veri['type'] == 'Pass') & (pd.isna(p1_veri['pass_outcome']))]),
-                len(p1_veri[p1_veri['type'] == 'Shot']),
-                len(p1_veri[p1_veri['type'] == 'Dribble']),
-                len(p1_veri[p1_veri['type'] == 'Ball Recovery'])
-            ]
-            
-            p2_degerler = [
-                len(p2_veri[p2_veri['type'] == 'Pass']),
-                len(p2_veri[(p2_veri['type'] == 'Pass') & (pd.isna(p2_veri['pass_outcome']))]),
-                len(p2_veri[p2_veri['type'] == 'Shot']),
-                len(p2_veri[p2_veri['type'] == 'Dribble']),
-                len(p2_veri[p2_veri['type'] == 'Ball Recovery'])
-            ]
-            
-            alt_sinirlar = [0, 0, 0, 0, 0]
-            ust_sinirlar = [
-                max(p1_degerler[0], p2_degerler[0]) + 5,
-                max(p1_degerler[1], p2_degerler[1]) + 5,
-                max(p1_degerler[2], p2_degerler[2]) + 2,
-                max(p1_degerler[3], p2_degerler[3]) + 2,
-                max(p1_degerler[4], p2_degerler[4]) + 2
-            ]
-
-            radar = Radar(parametreler, alt_sinirlar, ust_sinirlar,
-                          round_int=[True]*5, num_rings=4, ring_width=1, center_circle_radius=1)
-
-            fig, ax = radar.setup_axis(facecolor='#121212') 
-            fig.set_facecolor('#121212')
-
-            # HATA ÇÖZÜMÜ: draw_circles sadece arka plan halkalarını çizer, values almaz.
-            rings_inner, rings_outer = radar.draw_circles(ax=ax, facecolor='#28252c', edgecolor='#39353f')
-            
-            # Oyuncu verileri draw_radar ile çokgen olarak çizilir
-            radar.draw_radar(p1_degerler, ax=ax, kwargs_radar={'facecolor': '#800000', 'alpha': 0.6, 'lw': 2}, kwargs_rings={'alpha': 0})
-            radar.draw_radar(p2_degerler, ax=ax, kwargs_radar={'facecolor': '#0047AB', 'alpha': 0.6, 'lw': 2}, kwargs_rings={'alpha': 0})
-
-            radar_poly, rings, vertices = radar.draw_radar_solid(ax, alpha=0)
-            ax.vlines(x=vertices[:, 0], ymin=0, ymax=vertices[:, 1], color='white', lw=1, zorder=1)
-            radar.draw_range_labels(ax=ax, fontsize=10, color='white')
-            radar.draw_param_labels(ax=ax, fontsize=13, color='white')
-
-            fig.text(0.15, 0.95, oyuncu_1, fontsize=15, color='#800000', ha='center')
-            fig.text(0.5, 0.95, "vs", fontsize=15, color='white', ha='center')
-            fig.text(0.85, 0.95, oyuncu_2, fontsize=15, color='#0047AB', ha='center')
-            fig.text(0.95, 0.05, "inspired by: @muaythaibetter", fontsize=10, color='gray', ha='right')
-
-            st.pyplot(fig)
-
-    # --- TAB 3: GÖRSELDEKİ GİBİ SCOUT RAPORU EKRANI ---
-    with tab3:
-        st.subheader("İleri Düzey Veri Raporu (Percentile Rank)")
-        st.write("Veritabanındaki oyuncuyu aratarak kapsamlı raporunu inceleyin.")
-        
-        # Arama çubuğu
-        aranan_isim = st.text_input("🔍 Oyuncu Ara (Örn: isim veya soyisim girin):")
-        
-        if aranan_isim:
-            eslesenler = [p for p in oyuncular if aranan_isim.lower() in p.lower()]
-            
-            if eslesenler:
-                secilen_rapor = st.selectbox("Eşleşen Oyuncular:", eslesenler)
-                
-                st.markdown("---")
-                st.markdown(f"### 🛡️ {secilen_rapor} Raporu")
-                
-                r_veri = df_olaylar[df_olaylar['player'] == secilen_rapor]
-                r_pas = r_veri[r_veri['type'] == 'Pass']
-                
-                # Örnek İstatistik Hesaplamaları (Görseldeki mantığa uydurulmuş Maçlık veriler)
-                isabetli_pas = len(r_pas[pd.isna(r_pas['pass_outcome'])])
-                toplam_sut = len(r_veri[r_veri['type'] == 'Shot'])
-                basarili_dribble = len(r_veri[(r_veri['type'] == 'Dribble') & (r_veri['dribble_outcome'] == 'Complete')])
-                
-                # Görseldeki gibi 2 Sütunluk Kutu Tasarımı
-                c1, c2 = st.columns(2)
-                
-                with c1:
-                    st.markdown("##### OUTPUT & PLAYMAKING")
-                    st.write("Shots On Target")
-                    st.progress(41) # Görseldeki gibi bar (%41)
-                    st.caption(f"{toplam_sut} - AVERAGE")
-                    
-                    st.write("Progressive Passes")
-                    st.progress(78)
-                    st.caption("ABOVE AVG")
-                
-                with c2:
-                    st.markdown("##### PASSING & POSSESSION")
-                    st.write("Accurate Passes")
-                    st.progress(80) 
-                    st.caption(f"{isabetli_pas} (80%) - ABOVE AVG")
-                    
-                    st.write("Successful Dribbles")
-                    st.progress(67)
-                    st.caption(f"{basarili_dribble} (67%) - ABOVE AVG")
-                    
-                c3, c4 = st.columns(2)
-                
-                with c3:
-                    st.markdown("##### DEFENDING/DUELS")
-                    st.write("Tackles Won %")
-                    st.progress(69)
-                    st.caption("ABOVE AVG")
-                    
-                with c4:
-                    st.markdown("##### OTHER")
-                    st.write("Forward Passes")
-                    st.progress(89)
-                    st.caption("ELITE")
-            else:
-                st.warning("Bu maçta aradığınız isimde bir oyuncu bulunamadı.")
-
-except Exception as e:
-    st.error(f"Veri yüklenirken bir hata oluştu: {e}")
+    # --- OTHER KUTUSU ---
+    st.markdown('<div class="category-card">', unsafe_allow_html=True)
+    st.markdown('<div class="category-title">OTHER</div>', unsafe_allow_html=True)
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(draw_stat_bar("Interceptions", 0.60, 28), unsafe_allow_html=True)
+        st.markdown(draw_stat_bar("Passes in Opp. Half", 26.49, 81), unsafe_allow_html=True)
+    with c2:
+        st.markdown(draw_stat_bar("Fouls Drawn", 1.39, 61), unsafe_allow_html=True)
+        st.markdown(draw_stat_bar("Forward Passes", 25.01, 89), unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
