@@ -4,3 +4,6 @@ requests
 statsbombpy
 mplsoccer
 matplotlib
+pip install soccerdata
+wyscout
+sportbase
