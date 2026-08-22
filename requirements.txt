@@ -1,3 +1,6 @@
 streamlit
 pandas
 requests
+statsbombpy
+mplsoccer
+matplotlib
