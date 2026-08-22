@@ -42,8 +42,14 @@ try:
     with st.spinner("Maç verileri indiriliyor..."):
         df_olaylar = olaylari_getir(mac_id)
         
-    oyuncular = df_olaylar['player'].dropna().unique()
-    oyuncular.sort()
+    with st.spinner("Maç verileri indiriliyor..."):
+        df_olaylar = olaylari_getir(mac_id)
+        
+    # HATA VEREN KISIM BURADA DÜZELTİLDİ:
+    oyuncular = sorted(list(df_olaylar['player'].dropna().unique()))
+    
+    # --- ANA EKRAN SEKMELERİ ---
+    tab1, tab2 = st.tabs(["🗺️ Saha İstatistikleri", "🕸️ Radar (Kıyaslama)"])
     
     # --- ANA EKRAN SEKMELERİ ---
     tab1, tab2 = st.tabs(["🗺️ Saha İstatistikleri", "🕸️ Radar (Kıyaslama)"])
