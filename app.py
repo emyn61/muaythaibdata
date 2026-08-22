@@ -85,10 +85,3 @@ def canli_veri_getir():
     
     st.info("İpucu: API anahtarlarınızı doğrudan koda yazmak yerine Streamlit'in 'Secrets' (Gizli Ayarlar) bölümüne eklemek en güvenli yoldur.")
 ```eof
-
-Bu kodları GitHub'a yapıştırıp kaydettikten sonra sitenizde sekmeler, yan menüler, tablolar ve interaktif bir grafik göreceksiniz. 
-
-**Bundan sonraki adımlar için tavsiyem:** 
-1. Sitenizin yeni halini inceleyin.
-2. [API-Football](https://www.api-football.com/) sitesine gidip ücretsiz bir üyelik açarak kendinize bir API anahtarı edinin (Wyscout bireysel kullanıcılar için çok pahalıdır, API-Football ise günlük 100 isteğe kadar ücretsizdir ve aynı kalitede veri sunar).
-Anahtarınızı aldığınızda, verileri manuel tablodan çıkarıp canlıya bağlamak için bir sonraki adıma geçebiliriz!
